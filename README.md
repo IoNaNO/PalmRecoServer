@@ -8,6 +8,7 @@ conda activate palm
 pip install -r requirements-dev.txt # for development
 ```
 To install `edcc` package, you can refer to [this link](https://github.com/Leosocy/EDCC-Palmprint-Recognition#install-library).
+
 2. Start the server
 ```bash
 python server.py
