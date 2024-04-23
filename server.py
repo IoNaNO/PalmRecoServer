@@ -10,6 +10,8 @@ import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+from mediapipe import solutions
+from mediapipe.framework.formats import landmark_pb2
 import numpy as np
 import edcc
 
@@ -29,13 +31,20 @@ detector = vision.HandLandmarker.create_from_options(options)
 conf = edcc.EncoderConfig(29, 5, 5 ,10)
 encoder = edcc.create_encoder(conf)
 
+MARGIN = 10
+FONT_SIZE=1
+FONT_THICKNESS=1
+HANDEDNESS_TEXT_COLOR=(0, 0, 255)
+
 def draw_landmarks_on_image(rgb_image, detection_result):
     hand_landmarks_list = detection_result.hand_landmarks
     handedness_list = detection_result.handedness
+    annotated_image = np.copy(rgb_image)
 
     # Loop through the detected hands to visualize.
     for idx in range(len(hand_landmarks_list)):
         hand_landmarks = hand_landmarks_list[idx]
+        handedness = handedness_list[idx]
 
         ax = hand_landmarks[5].x
         ay = hand_landmarks[5].y
@@ -46,32 +55,32 @@ def draw_landmarks_on_image(rgb_image, detection_result):
         dx = hand_landmarks[17].x
         dy = hand_landmarks[17].y
 
-        # # Draw the hand landmarks.
-        # hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
-        # hand_landmarks_proto.landmark.extend([
-        #     landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in hand_landmarks
-        # ])
-        # solutions.drawing_utils.draw_landmarks(
-        #     annotated_image,
-        #     hand_landmarks_proto,
-        #     solutions.hands.HAND_CONNECTIONS,
-        #     solutions.drawing_styles.get_default_hand_landmarks_style(),
-        #     solutions.drawing_styles.get_default_hand_connections_style())
+        # Draw the hand landmarks.
+        hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
+        hand_landmarks_proto.landmark.extend([
+            landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in hand_landmarks
+        ])
+        solutions.drawing_utils.draw_landmarks(
+            annotated_image,
+            hand_landmarks_proto,
+            solutions.hands.HAND_CONNECTIONS,
+            solutions.drawing_styles.get_default_hand_landmarks_style(),
+            solutions.drawing_styles.get_default_hand_connections_style())
 
-    # # Get the top left corner of the detected hand's bounding box.
-    # height, width, _ = annotated_image.shape
-    # x_coordinates = [landmark.x for landmark in hand_landmarks]
-    # y_coordinates = [landmark.y for landmark in hand_landmarks]
-    # text_x = int(min(x_coordinates) * width)
-    # text_y = int(min(y_coordinates) * height) - MARGIN
+        # Get the top left corner of the detected hand's bounding box.
+        height, width, _ = annotated_image.shape
+        x_coordinates = [landmark.x for landmark in hand_landmarks]
+        y_coordinates = [landmark.y for landmark in hand_landmarks]
+        text_x = int(min(x_coordinates) * width)
+        text_y = int(min(y_coordinates) * height) - MARGIN
 
-    # # Draw handedness (left or right hand) on the image.
-    # cv2.putText(annotated_image, f"{handedness[0].category_name}",
-    #             (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
-    #             FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
+        # Draw handedness (left or right hand) on the image.
+        cv2.putText(annotated_image, f"{handedness[0].category_name}",
+                    (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
+                    FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
 
     # return annotated_image
-    return ax, ay, bx, by, cx, cy, dx, dy
+    return ax, ay, bx, by, cx, cy, dx, dy,annotated_image
 
 @app.route('/recognize', methods=['POST'])
 def recognize():
@@ -94,24 +103,26 @@ def recognize():
         save_path = os.path.join('./Users', app.config['TEST_SET'])
         if not os.path.exists(save_path):
             os.makedirs(save_path)
-        # img_data = img_data.replace(' ', '+')
+
+        # decode base64 image
         img_data = img_data.split(",")[1]
         img_bytes = base64.b64decode(img_data, altchars=None, validate=False)
         img = Image.open(io.BytesIO(img_bytes))
         img.save(os.path.join(save_path, 'temp.jpg'))
-        # file.save(os.path.join(save_path, 'temp.jpg'))
         
-#        img = mp.Image.create_from_file(os.path.join(save_path, 'temp.jpg'))
-#        detection_result = detector.detect(img)
-#        ax, ay, bx, by, cx, cy, dx, dy = draw_landmarks_on_image(img.numpy_view(), detection_result)
-        
+        # pre process image
         img = cv2.imread(os.path.join(save_path, 'temp.jpg'), 1)
-        img = cv2.transpose(img)
-        img = cv2.flip(img, 1)
+        # img = cv2.transpose(img)
+        # img = cv2.flip(img, 1)
         cv2.imwrite(os.path.join(save_path, 'temp.jpg'), img)
         img_ = mp.Image.create_from_file(os.path.join(save_path, 'temp.jpg'))
+
+        # detect landmarks
         detection_result = detector.detect(img_)
-        ax, ay, bx, by, cx, cy, dx, dy = draw_landmarks_on_image(img_.numpy_view(), detection_result)
+        # print(detection_result)
+        ax, ay, bx, by, cx, cy, dx, dy,img_annotated = draw_landmarks_on_image(img_.numpy_view(), detection_result)
+        cv2.imwrite(os.path.join(save_path, 'temp_annotated.jpg'), img_annotated)
+
         img = cv2.imread(os.path.join(save_path, 'temp.jpg'), 0)
         h, w = img.shape
         v1 = np.array([(0.67 * ax + 0.33 * bx) * w,

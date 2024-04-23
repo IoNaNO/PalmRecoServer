@@ -1,2 +1,4 @@
 # SSL keys for https
 *.pem
+# Users information for develop
+Users/
