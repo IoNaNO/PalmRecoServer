@@ -1,2 +1,2 @@
-# private key for https
-key.pem
+# SSL keys for https
+*.pem
