@@ -1,7 +1,6 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_httpauth import HTTPBasicAuth
-from werkzeug.utils import secure_filename
 import os
 import base64
 from PIL import Image
@@ -186,80 +185,32 @@ def register():
     if not os.path.exists(left_path):
         os.makedirs(left_path)
     for i, img_data in enumerate(left_images):
-        img_data = img_data.split(",")[1]
-        img_bytes = base64.b64decode(img_data, altchars=None, validate=False)
-        img = Image.open(io.BytesIO(img_bytes))
+        img = decode_base64_image(img_data)
         img.save(os.path.join(left_path, f'left_image_{i}.jpg'))
 
-        # img = mp.Image.create_from_file(os.path.join(left_path, f'left_image_{i}.jpg'))
-        # detection_result = detector.detect(img)
-        # ax, ay, bx, by, cx, cy, dx, dy = draw_landmarks_on_image(img.numpy_view(), detection_result)
-        
-        img = cv2.imread(os.path.join(left_path, f'left_image_{i}.jpg'), 1)
-        img = cv2.transpose(img)
-        img = cv2.flip(img, 1)
-        cv2.imwrite(os.path.join(left_path, f'left_image_{i}.jpg'), img)
-        img_ = mp.Image.create_from_file(os.path.join(left_path, f'left_image_{i}.jpg'))
-        detection_result = detector.detect(img_)
-        ax, ay, bx, by, cx, cy, dx, dy = draw_landmarks_on_image(img_.numpy_view(), detection_result)
-        img = cv2.imread(os.path.join(left_path, f'left_image_{i}.jpg'), 0)
-        h, w = img.shape
-        v1 = np.array([(0.67 * ax + 0.33 * bx) * w,
-                       (0.67 * ay + 0.33 * by) * h])
-        v2 = np.array([(0.33 * cx + 0.67 * dx) * w,
-                       (0.33 * cy + 0.67 * dy) * h])
-        theta = np.arctan2(v2[1] - v1[1], v2[0] - v1[0]) * 180 / np.pi
-        R = cv2.getRotationMatrix2D((int(v2[0]), int(v2[1])), theta, 1)
-        rotated_img = cv2.warpAffine(img, R, (w, h))
-        v1 = (R[:,:2] @ v1 + R[:,-1]).astype(np.int32)
-        v2 = (R[:,:2] @ v2 + R[:,-1]).astype(np.int32)
-        ux = int(v1[0])
-        uy = int(v1[1])
-        lx = int(v2[0])
-        ly = int(v2[1] + v2[0] - v1[0])
-        print(uy, ly)
-        print(ux, lx)
-        ROI_img = rotated_img[uy:ly,ux:lx]
+        # img = cv2.imread(os.path.join(left_path, f'left_image_{i}.jpg'), 1)
+        # img = cv2.transpose(img)
+        # img = cv2.flip(img, 1)
+        # cv2.imwrite(os.path.join(left_path, f'left_image_{i}.jpg'), img)
+        rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(img))
+        detection_result = detector.detect(rgb_frame)
+
+        img = cv2.imread(os.path.join(left_path, f'left_image_{i}.jpg'), cv2.IMREAD_GRAYSCALE)
+        ROI_img = get_ROI_image(img, detection_result)
         cv2.imwrite(os.path.join(left_path, f'left_ROI_{i}.jpg'), ROI_img)
 
     right_path = os.path.join(save_path, 'right')
     if not os.path.exists(right_path):
         os.makedirs(right_path)
     for i, img_data in enumerate(right_images):
-        img_data = img_data.split(",")[1]
-        img_bytes = base64.b64decode(img_data, altchars=None, validate=False)
-        img = Image.open(io.BytesIO(img_bytes))
+        img = decode_base64_image(img_data)
         img.save(os.path.join(right_path, f'right_image_{i}.jpg'))
 
-        # img = mp.Image.create_from_file(os.path.join(right_path, f'right_image_{i}.jpg'))
-        # detection_result = detector.detect(img)
-        # ax, ay, bx, by, cx, cy, dx, dy = draw_landmarks_on_image(img.numpy_view(), detection_result)
-        
-        img = cv2.imread(os.path.join(right_path, f'right_image_{i}.jpg'), 1)
-        img = cv2.transpose(img)
-        img = cv2.flip(img, 1)
-        cv2.imwrite(os.path.join(right_path, f'right_image_{i}.jpg'), img)
-        img_ = mp.Image.create_from_file(os.path.join(right_path, f'right_image_{i}.jpg'))
-        detection_result = detector.detect(img_)
-        ax, ay, bx, by, cx, cy, dx, dy = draw_landmarks_on_image(img_.numpy_view(), detection_result)
-        img = cv2.imread(os.path.join(right_path, f'right_image_{i}.jpg'), 0)
-        h, w = img.shape
-        v1 = np.array([(0.67 * ax + 0.33 * bx) * w,
-                       (0.67 * ay + 0.33 * by) * h])
-        v2 = np.array([(0.33 * cx + 0.67 * dx) * w,
-                       (0.33 * cy + 0.67 * dy) * h])
-        theta = np.arctan2(v2[1] - v1[1], v2[0] - v1[0]) * 180 / np.pi
-        R = cv2.getRotationMatrix2D((int(v2[0]), int(v2[1])), theta, 1)
-        rotated_img = cv2.warpAffine(img, R, (w, h))
-        v1 = (R[:,:2] @ v1 + R[:,-1]).astype(np.int32)
-        v2 = (R[:,:2] @ v2 + R[:,-1]).astype(np.int32)
-        ux = int(v1[0])
-        uy = int(v1[1])
-        lx = int(v2[0])
-        ly = int(v2[1] + v2[0] - v1[0])
-        print(uy, ly)
-        print(ux, lx)
-        ROI_img = rotated_img[uy:ly,ux:lx]
+        rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(img))
+        detection_result = detector.detect(rgb_frame)
+
+        img = cv2.imread(os.path.join(right_path, f'right_image_{i}.jpg'), cv2.IMREAD_GRAYSCALE)
+        ROI_img = get_ROI_image(img, detection_result)
         cv2.imwrite(os.path.join(right_path, f'right_ROI_{i}.jpg'), ROI_img)
 
 
