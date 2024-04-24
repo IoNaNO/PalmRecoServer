@@ -36,6 +36,7 @@ FONT_SIZE=1
 FONT_THICKNESS=1
 HANDEDNESS_TEXT_COLOR=(0, 0, 255)
 
+# generate annotated image
 def draw_landmarks_on_image(rgb_image, detection_result):
     hand_landmarks_list = detection_result.hand_landmarks
     handedness_list = detection_result.handedness
@@ -45,15 +46,6 @@ def draw_landmarks_on_image(rgb_image, detection_result):
     for idx in range(len(hand_landmarks_list)):
         hand_landmarks = hand_landmarks_list[idx]
         handedness = handedness_list[idx]
-
-        ax = hand_landmarks[5].x
-        ay = hand_landmarks[5].y
-        bx = hand_landmarks[9].x
-        by = hand_landmarks[9].y
-        cx = hand_landmarks[13].x
-        cy = hand_landmarks[13].y
-        dx = hand_landmarks[17].x
-        dy = hand_landmarks[17].y
 
         # Draw the hand landmarks.
         hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
@@ -80,67 +72,79 @@ def draw_landmarks_on_image(rgb_image, detection_result):
                     FONT_SIZE, HANDEDNESS_TEXT_COLOR, FONT_THICKNESS, cv2.LINE_AA)
 
     # return annotated_image
-    return ax, ay, bx, by, cx, cy, dx, dy,annotated_image
+    return annotated_image
+
+# generate ROI image
+def get_ROI_image(rgb_image, detection_result):
+    hand_landmarks=detection_result.hand_landmarks[0]
+    # get ROI key points
+    ax = hand_landmarks[5].x
+    ay = hand_landmarks[5].y
+    bx = hand_landmarks[9].x
+    by = hand_landmarks[9].y
+    cx = hand_landmarks[13].x
+    cy = hand_landmarks[13].y
+    dx = hand_landmarks[17].x
+    dy = hand_landmarks[17].y
+
+    h, w = rgb_image.shape
+    v1 = np.array([(0.67 * ax + 0.33 * bx) * w,
+                    (0.67 * ay + 0.33 * by) * h])
+    v2 = np.array([(0.33 * cx + 0.67 * dx) * w,
+                    (0.33 * cy + 0.67 * dy) * h])
+    theta = np.arctan2(v2[1] - v1[1], v2[0] - v1[0]) * 180 / np.pi
+    R = cv2.getRotationMatrix2D((int(v2[0]), int(v2[1])), theta, 1)
+    rotated_img = cv2.warpAffine(rgb_image, R, (w, h))
+    v1 = (R[:,:2] @ v1 + R[:,-1]).astype(np.int32)
+    v2 = (R[:,:2] @ v2 + R[:,-1]).astype(np.int32)
+    ux = int(v1[0])
+    uy = int(v1[1])
+    lx = int(v2[0])
+    ly = int(v2[1] + v2[0] - v1[0])
+    ROI_img = rotated_img[uy:ly,ux:lx]
+    return ROI_img
+
+# decode base64 image
+def decode_base64_image(img_data):
+    img_data = img_data.split(",")[1]
+    img_bytes = base64.b64decode(img_data, altchars=None, validate=False)
+    img = Image.open(io.BytesIO(img_bytes))
+    return img
 
 @app.route('/recognize', methods=['POST'])
 def recognize():
-    # if 'file' not in request.files:
-    #     return jsonify({'error': 'No file part in the request.'}), 400
-
-    # file = request.files['file']
-    # if file.filename == '':
-    #     return jsonify({'error': 'No selected file.'}), 400
-        
     try:
-        # data = request.get_json()
-        # img_data = data['file']
         img_data = request.form.get('file')
     except Exception as e:
         return jsonify({'code': 1}), 401
 
     if img_data:
-        # filename = secure_filename(file.filename)
         save_path = os.path.join('./Users', app.config['TEST_SET'])
         if not os.path.exists(save_path):
             os.makedirs(save_path)
 
         # decode base64 image
-        img_data = img_data.split(",")[1]
-        img_bytes = base64.b64decode(img_data, altchars=None, validate=False)
-        img = Image.open(io.BytesIO(img_bytes))
+        img = decode_base64_image(img_data)
         img.save(os.path.join(save_path, 'temp.jpg'))
         
         # pre process image
-        img = cv2.imread(os.path.join(save_path, 'temp.jpg'), 1)
+        # img = cv2.imread(os.path.join(save_path, 'temp.jpg'), 1)
         # img = cv2.transpose(img)
         # img = cv2.flip(img, 1)
-        cv2.imwrite(os.path.join(save_path, 'temp.jpg'), img)
-        img_ = mp.Image.create_from_file(os.path.join(save_path, 'temp.jpg'))
-
+        # cv2.imwrite(os.path.join(save_path, 'temp.jpg'), img)
+        # rgb_frame = mp.Image.create_from_file(os.path.join(save_path, 'temp.jpg'))
+        rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(img))
+        
         # detect landmarks
-        detection_result = detector.detect(img_)
+        detection_result = detector.detect(rgb_frame)
         # print(detection_result)
-        ax, ay, bx, by, cx, cy, dx, dy,img_annotated = draw_landmarks_on_image(img_.numpy_view(), detection_result)
+        img_annotated = draw_landmarks_on_image(rgb_frame.numpy_view(), detection_result)
         cv2.imwrite(os.path.join(save_path, 'temp_annotated.jpg'), img_annotated)
 
-        img = cv2.imread(os.path.join(save_path, 'temp.jpg'), 0)
-        h, w = img.shape
-        v1 = np.array([(0.67 * ax + 0.33 * bx) * w,
-                       (0.67 * ay + 0.33 * by) * h])
-        v2 = np.array([(0.33 * cx + 0.67 * dx) * w,
-                       (0.33 * cy + 0.67 * dy) * h])
-        theta = np.arctan2(v2[1] - v1[1], v2[0] - v1[0]) * 180 / np.pi
-        R = cv2.getRotationMatrix2D((int(v2[0]), int(v2[1])), theta, 1)
-        rotated_img = cv2.warpAffine(img, R, (w, h))
-        v1 = (R[:,:2] @ v1 + R[:,-1]).astype(np.int32)
-        v2 = (R[:,:2] @ v2 + R[:,-1]).astype(np.int32)
-        ux = int(v1[0])
-        uy = int(v1[1])
-        lx = int(v2[0])
-        ly = int(v2[1] + v2[0] - v1[0])
-        ROI_img = rotated_img[uy:ly,ux:lx]
-        cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), ROI_img)
-    
+        # get ROI image
+        img = cv2.imread(os.path.join(save_path, 'temp.jpg'), cv2.IMREAD_GRAYSCALE)
+        img_ROI=get_ROI_image(img, detection_result)
+        cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), img_ROI)
         for root, dirs, files in os.walk('./Users'):
             if root == './Users':
                 for dir in dirs:
