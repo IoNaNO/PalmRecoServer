@@ -14,6 +14,8 @@ from mediapipe.framework.formats import landmark_pb2
 import numpy as np
 import edcc
 
+RIGHT = 0
+LEFT  = 1
 TRAIN_SET = 'train'
 TEST_SET = 'test'
 app = Flask(__name__, static_url_path = "")
@@ -74,33 +76,39 @@ def draw_landmarks_on_image(rgb_image, detection_result):
     return annotated_image
 
 # generate ROI image
-def get_ROI_image(rgb_image, detection_result):
+def get_ROI_image(gray_image, detection_result):
     hand_landmarks=detection_result.hand_landmarks[0]
-    # get ROI key points
-    ax = hand_landmarks[5].x
-    ay = hand_landmarks[5].y
-    bx = hand_landmarks[9].x
-    by = hand_landmarks[9].y
-    cx = hand_landmarks[13].x
-    cy = hand_landmarks[13].y
-    dx = hand_landmarks[17].x
-    dy = hand_landmarks[17].y
+    # pick key points
+    x5, y5 = hand_landmarks[5].x, hand_landmarks[5].y
+    x17, y17 = hand_landmarks[17].x, hand_landmarks[17].y
 
-    h, w = rgb_image.shape
-    v1 = np.array([(0.67 * ax + 0.33 * bx) * w,
-                    (0.67 * ay + 0.33 * by) * h])
-    v2 = np.array([(0.33 * cx + 0.67 * dx) * w,
-                    (0.33 * cy + 0.67 * dy) * h])
-    theta = np.arctan2(v2[1] - v1[1], v2[0] - v1[0]) * 180 / np.pi
-    R = cv2.getRotationMatrix2D((int(v2[0]), int(v2[1])), theta, 1)
-    rotated_img = cv2.warpAffine(rgb_image, R, (w, h))
-    v1 = (R[:,:2] @ v1 + R[:,-1]).astype(np.int32)
-    v2 = (R[:,:2] @ v2 + R[:,-1]).astype(np.int32)
-    ux = int(v1[0])
-    uy = int(v1[1])
-    lx = int(v2[0])
-    ly = int(v2[1] + v2[0] - v1[0])
-    ROI_img = rotated_img[uy:ly,ux:lx]
+    # get the coordinates
+    h, w = gray_image.shape
+    x5, y5 = int(x5 * w), int(y5 * h)
+    x17, y17 = int(x17 * w), int(y17 * h)
+
+    # middle point
+    cx, cy = (x5 + x17) // 2, (y5 + y17) // 2
+
+    # angle of rotation
+    if detection_result.handedness[0][0].index == LEFT:
+        angle = np.arctan2(y17 - y5, x17 - x5) * (180 / np.pi)
+    else:
+        angle = np.arctan2(y5 - y17, x5 - x17) * (180 / np.pi)
+
+    # new sqaure side length
+    length=int(np.hypot(x17-x5, y17-y5))
+    
+    # rotate matrix
+    M = cv2.getRotationMatrix2D((cx, cy), angle, 1)
+    rotated_img = cv2.warpAffine(gray_image, M, (w, h))
+    # cv2.imwrite('rotated.jpg', rotated_img)
+
+    # ROI
+    start_x = cx - length // 2
+    start_y = cy
+    ROI_img = rotated_img[start_y:start_y + length, start_x:start_x + length]
+
     return ROI_img
 
 # decode base64 image
