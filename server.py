@@ -13,6 +13,7 @@ from mediapipe import solutions
 from mediapipe.framework.formats import landmark_pb2
 import numpy as np
 import edcc
+import time
 
 RIGHT = 0
 LEFT  = 1
@@ -109,6 +110,9 @@ def get_ROI_image(gray_image, detection_result):
     start_y = cy
     ROI_img = rotated_img[start_y:start_y + length, start_x:start_x + length]
 
+    # normalization
+    ROI_img = cv2.resize(ROI_img, (256, 256))
+
     return ROI_img
 
 # decode base64 image
@@ -143,14 +147,17 @@ def recognize():
         rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(img))
         
         # detect landmarks
+        st_time=time.time()
         detection_result = detector.detect(rgb_frame)
+        print('detection time:', time.time()-st_time)
         # print(detection_result)
-        img_annotated = draw_landmarks_on_image(rgb_frame.numpy_view(), detection_result)
-        cv2.imwrite(os.path.join(save_path, 'temp_annotated.jpg'), img_annotated)
+        # img_annotated = draw_landmarks_on_image(rgb_frame.numpy_view(), detection_result)
+        # cv2.imwrite(os.path.join(save_path, 'temp_annotated.jpg'), img_annotated)
 
         # get ROI image
         img = cv2.imread(os.path.join(save_path, 'temp.jpg'), cv2.IMREAD_GRAYSCALE)
         img_ROI=get_ROI_image(img, detection_result)
+        print('ROI extractation time:', time.time()-st_time)
         cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), img_ROI)
         for root, dirs, files in os.walk('./Users'):
             if root == './Users':
