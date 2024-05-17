@@ -157,7 +157,8 @@ def recognize():
         # get ROI image
         img = cv2.imread(os.path.join(save_path, 'temp.jpg'), cv2.IMREAD_GRAYSCALE)
         img_ROI=get_ROI_image(img, detection_result)
-        print('ROI extractation time:', time.time()-st_time)
+        en_time = time.time()
+        print(f'ROI extractation time: {ed_time - st_time}s')
         cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), img_ROI)
         for root, dirs, files in os.walk('./Users'):
             if root == './Users':
