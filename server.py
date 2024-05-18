@@ -130,6 +130,7 @@ def recognize():
         return jsonify({'code': 1}), 401
 
     if img_data:
+        st_time=time.time()
         save_path = os.path.join('./Users', app.config['TEST_SET'])
         if not os.path.exists(save_path):
             os.makedirs(save_path)
@@ -147,9 +148,9 @@ def recognize():
         rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(img))
         
         # detect landmarks
-        st_time=time.time()
         detection_result = detector.detect(rgb_frame)
-        print('detection time:', time.time()-st_time)
+        ed_time = time.time()
+        print('detection time:', ed_time()-st_time)
         # print(detection_result)
         # img_annotated = draw_landmarks_on_image(rgb_frame.numpy_view(), detection_result)
         # cv2.imwrite(os.path.join(save_path, 'temp_annotated.jpg'), img_annotated)
@@ -157,7 +158,7 @@ def recognize():
         # get ROI image
         img = cv2.imread(os.path.join(save_path, 'temp.jpg'), cv2.IMREAD_GRAYSCALE)
         img_ROI=get_ROI_image(img, detection_result)
-        en_time = time.time()
+        ed_time = time.time()
         print(f'ROI extractation time: {ed_time - st_time}s')
         cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), img_ROI)
         for root, dirs, files in os.walk('./Users'):
@@ -179,8 +180,8 @@ def recognize():
                             another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
                             if one_palmprint_code.compare_to(another_palmprint_code) >= 0.12:
                                 return jsonify({'code': 0, 'result': dir})
-
-
+        ed_time = time.time()
+        print(f'Matching time: {ed_time - st_time}s')
         return jsonify({'code': 0, 'result': 'None'})
     return jsonify({'code': 1}), 400
 
@@ -231,6 +232,54 @@ def register():
 
 
     return jsonify({'code': 0})
+
+
+@app.route('/recognize_native', methods=['POST'])
+def reco():
+    try:
+        img_data = request.form.get('file')
+    except Exception as e:
+        return jsonify({'code': 1}), 401
+
+    if img_data:
+        st_time = time.time()
+        save_path = os.path.join('./Users', app.config['TEST_SET'])
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+
+        # decode base64 image
+        img = decode_base64_image(img_data)
+        img.save(os.path.join(save_path, 'temp.png'))
+        
+        # get ROI image
+        img_ROI= cv2.imread(os.path.join(save_path, 'temp.png'), cv2.IMREAD_GRAYSCALE)
+        cv2.imwrite(os.path.join(save_path, 'temp_roi.jpg'), img_ROI)
+        for root, dirs, files in os.walk('./Users'):
+            if root == './Users':
+                for dir in dirs:
+                    if dir != 'test':
+                        test_path = os.path.join('./Users', dir)
+                        test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/left')
+                        for i in range(2):
+                            one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'left_ROI_{i}.jpg'))
+                            another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_roi.jpg'))
+                            if one_palmprint_code.compare_to(another_palmprint_code) >= 0.12:
+                                return jsonify({'code': 0, 'result': dir})
+
+                        test_path = os.path.join('./Users', dir)
+                        test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/right')
+                        for i in range(2):
+                            one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'right_ROI_{i}.jpg'))
+                            another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_roi.jpg'))
+                            if one_palmprint_code.compare_to(another_palmprint_code) >= 0.12:
+                                return jsonify({'code': 0, 'result': dir})
+
+        ed_time = time.time()
+        print(f'Matching time: {ed_time - st_time}s')
+
+        return jsonify({'code': 0, 'result': 'None'})
+    return jsonify({'code': 1}), 400
+
 
 if __name__ == '__main__':
     context = ('cert.pem', 'key.pem')
