@@ -30,12 +30,13 @@ options = vision.HandLandmarkerOptions(base_options=base_options,
                                        num_hands=1)
 detector = vision.HandLandmarker.create_from_options(options)
 
-conf = edcc.EncoderConfig(29, 5, 5 ,10)
+conf = edcc.EncoderConfig(45, 5, 5 ,10)
 encoder = edcc.create_encoder(conf)
 
 MARGIN = 10
 FONT_SIZE=1
 FONT_THICKNESS=1
+MATCH_THRESHOLD=0.125
 HANDEDNESS_TEXT_COLOR=(0, 0, 255)
 
 # generate annotated image
@@ -122,6 +123,21 @@ def decode_base64_image(img_data):
     img = Image.open(io.BytesIO(img_bytes))
     return img
 
+# save register image
+def save_user_data(username,leftImages,rightImages):
+    save_path=os.path.join('./Users/'+username,app.config['TRAIN_SET'])
+    left_path=os.path.join(save_path,'left')
+    right_path=os.path.join(save_path,'right')
+    if not os.path.exists(left_path):
+        os.makedirs(left_path)
+    if not os.path.exists(right_path):
+        os.makedirs(right_path)
+    for i,img_data in enumerate(leftImages):
+        cv2.imwrite(os.path.join(left_path,f'left_ROI_{i}.jpg'),img_data)
+    for i,img_data in enumerate(rightImages):
+        cv2.imwrite(os.path.join(right_path,f'right_ROI_{i}.jpg'),img_data)
+
+
 @app.route('/recognize', methods=['POST'])
 def recognize():
     try:
@@ -150,7 +166,7 @@ def recognize():
         # detect landmarks
         detection_result = detector.detect(rgb_frame)
         ed_time = time.time()
-        print('detection time:', ed_time()-st_time)
+        print('detection time:', ed_time-st_time)
         # print(detection_result)
         # img_annotated = draw_landmarks_on_image(rgb_frame.numpy_view(), detection_result)
         # cv2.imwrite(os.path.join(save_path, 'temp_annotated.jpg'), img_annotated)
@@ -161,6 +177,7 @@ def recognize():
         ed_time = time.time()
         print(f'ROI extractation time: {ed_time - st_time}s')
         cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), img_ROI)
+        result='None'
         for root, dirs, files in os.walk('./Users'):
             if root == './Users':
                 for dir in dirs:
@@ -170,66 +187,59 @@ def recognize():
                         for i in range(2):
                             one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'left_ROI_{i}.jpg'))
                             another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
-                            if one_palmprint_code.compare_to(another_palmprint_code) >= 0.12:
-                                return jsonify({'code': 0, 'result': dir})
-
-                        test_path = os.path.join('./Users', dir)
-                        test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/right')
-                        for i in range(2):
-                            one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'right_ROI_{i}.jpg'))
-                            another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
-                            if one_palmprint_code.compare_to(another_palmprint_code) >= 0.12:
-                                return jsonify({'code': 0, 'result': dir})
+                            if one_palmprint_code.compare_to(another_palmprint_code) >= MATCH_THRESHOLD:
+                                result = dir
+                                break
+                        if result == 'None':
+                            test_path = os.path.join('./Users', dir)
+                            test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/right')
+                            for i in range(2):
+                                one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'right_ROI_{i}.jpg'))
+                                another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
+                                if one_palmprint_code.compare_to(another_palmprint_code) >= MATCH_THRESHOLD:
+                                    result = dir
+                                    break
+                        if result != 'None':
+                            break
         ed_time = time.time()
         print(f'Matching time: {ed_time - st_time}s')
-        return jsonify({'code': 0, 'result': 'None'})
+        return jsonify({'code': 0, 'result': result})
     return jsonify({'code': 1}), 400
 
 @app.route('/register', methods=['POST'])
 def register():
     try:
         data = request.get_json()
-        print(data.keys())
         user_name = data['username']
         left_images = data['left_images']
         right_images = data['right_images']
     except Exception as e:
         return jsonify({'code': 1}), 401
 
-    save_path = os.path.join('./Users/' + user_name, app.config['TRAIN_SET'])
-
-    left_path = os.path.join(save_path, 'left')
-    if not os.path.exists(left_path):
-        os.makedirs(left_path)
+    left_ROIs=[]
+    right_ROIs=[]
+    test_path = os.path.join('./Users',app.config['TEST_SET'])
     for i, img_data in enumerate(left_images):
         img = decode_base64_image(img_data)
-        img.save(os.path.join(left_path, f'left_image_{i}.jpg'))
-
-        # img = cv2.imread(os.path.join(left_path, f'left_image_{i}.jpg'), 1)
-        # img = cv2.transpose(img)
-        # img = cv2.flip(img, 1)
-        # cv2.imwrite(os.path.join(left_path, f'left_image_{i}.jpg'), img)
+        img.save(os.path.join(test_path, f'left_image_{i}.jpg'))
         rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(img))
         detection_result = detector.detect(rgb_frame)
 
-        img = cv2.imread(os.path.join(left_path, f'left_image_{i}.jpg'), cv2.IMREAD_GRAYSCALE)
+        img = cv2.imread(os.path.join(test_path, f'left_image_{i}.jpg'), cv2.IMREAD_GRAYSCALE)
         ROI_img = get_ROI_image(img, detection_result)
-        cv2.imwrite(os.path.join(left_path, f'left_ROI_{i}.jpg'), ROI_img)
+        left_ROIs.append(ROI_img)
 
-    right_path = os.path.join(save_path, 'right')
-    if not os.path.exists(right_path):
-        os.makedirs(right_path)
     for i, img_data in enumerate(right_images):
         img = decode_base64_image(img_data)
-        img.save(os.path.join(right_path, f'right_image_{i}.jpg'))
-
+        img.save(os.path.join(test_path, f'right_image_{i}.jpg'))
         rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(img))
         detection_result = detector.detect(rgb_frame)
 
-        img = cv2.imread(os.path.join(right_path, f'right_image_{i}.jpg'), cv2.IMREAD_GRAYSCALE)
+        img = cv2.imread(os.path.join(test_path, f'right_image_{i}.jpg'), cv2.IMREAD_GRAYSCALE)
         ROI_img = get_ROI_image(img, detection_result)
-        cv2.imwrite(os.path.join(right_path, f'right_ROI_{i}.jpg'), ROI_img)
+        right_ROIs.append(ROI_img)
 
+    save_user_data(user_name, left_ROIs, right_ROIs)
 
     return jsonify({'code': 0})
 
@@ -253,7 +263,9 @@ def reco():
         
         # get ROI image
         img_ROI= cv2.imread(os.path.join(save_path, 'temp.png'), cv2.IMREAD_GRAYSCALE)
-        cv2.imwrite(os.path.join(save_path, 'temp_roi.jpg'), img_ROI)
+        cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), img_ROI)
+        result='None'
+        score=0.01
         for root, dirs, files in os.walk('./Users'):
             if root == './Users':
                 for dir in dirs:
@@ -262,24 +274,58 @@ def reco():
                         test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/left')
                         for i in range(2):
                             one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'left_ROI_{i}.jpg'))
-                            another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_roi.jpg'))
-                            if one_palmprint_code.compare_to(another_palmprint_code) >= 0.12:
-                                return jsonify({'code': 0, 'result': dir})
-
-                        test_path = os.path.join('./Users', dir)
-                        test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/right')
-                        for i in range(2):
-                            one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'right_ROI_{i}.jpg'))
-                            another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_roi.jpg'))
-                            if one_palmprint_code.compare_to(another_palmprint_code) >= 0.12:
-                                return jsonify({'code': 0, 'result': dir})
-
+                            another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
+                            score = one_palmprint_code.compare_to(another_palmprint_code)
+                            print(f'left score: {score}')
+                            if score >= MATCH_THRESHOLD:
+                                result = dir
+                                break
+                        if result == 'None':
+                            test_path = os.path.join('./Users', dir)
+                            test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/right')
+                            for i in range(2):
+                                one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'right_ROI_{i}.jpg'))
+                                another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
+                                score = one_palmprint_code.compare_to(another_palmprint_code)
+                                print(f'right score: {score}')
+                                if score >= MATCH_THRESHOLD:
+                                    result = dir
+                                    break
+                        if result != 'None':
+                            break
         ed_time = time.time()
         print(f'Matching time: {ed_time - st_time}s')
-
-        return jsonify({'code': 0, 'result': 'None'})
+        return jsonify({'code': 0, 'result': result})
     return jsonify({'code': 1}), 400
 
+@app.route('/register_native', methods=['POST'])
+def regi():
+    try:
+        data = request.get_json()
+        user_name = data['username']
+        left_images = data['left_images']
+        right_images = data['right_images']
+    except Exception as e:
+        return jsonify({'code': 1}), 401
+    # save response data to file for debug
+    with open('response.json','w') as f:
+        f.write(str(data))
+    test_path = os.path.join('./Users',app.config['TEST_SET'])
+    left_ROIs=[]
+    right_ROIs=[]
+    # convert base64 to image
+    for i,img_data in enumerate(left_images):
+        img=decode_base64_image(img_data)
+        img.save(os.path.join(test_path,f'left_image_{i}.png'))
+        img_ROI=cv2.imread(os.path.join(test_path,f'left_image_{i}.png'),cv2.IMREAD_GRAYSCALE)
+        left_ROIs.append(img_ROI)
+    for i,img_data in enumerate(right_images):
+        img=decode_base64_image(img_data)
+        img.save(os.path.join(test_path,f'right_image_{i}.png'))
+        img_ROI=cv2.imread(os.path.join(test_path,f'right_image_{i}.png'),cv2.IMREAD_GRAYSCALE)
+        right_ROIs.append(img_ROI)
+    save_user_data(user_name,left_ROIs,right_ROIs)
+    return jsonify({'code': 0})
 
 if __name__ == '__main__':
     context = ('cert.pem', 'key.pem')
