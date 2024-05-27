@@ -308,8 +308,8 @@ def regi():
     except Exception as e:
         return jsonify({'code': 1}), 401
     # save response data to file for debug
-    with open('response.json','w') as f:
-        f.write(str(data))
+    # with open('response.json','w') as f:
+    #     f.write(str(data))
     test_path = os.path.join('./Users',app.config['TEST_SET'])
     left_ROIs=[]
     right_ROIs=[]
