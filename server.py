@@ -128,15 +128,43 @@ def save_user_data(username,leftImages,rightImages):
     save_path=os.path.join('./Users/'+username,app.config['TRAIN_SET'])
     left_path=os.path.join(save_path,'left')
     right_path=os.path.join(save_path,'right')
-    if not os.path.exists(left_path):
-        os.makedirs(left_path)
-    if not os.path.exists(right_path):
-        os.makedirs(right_path)
+    os.makedirs(left_path,exist_ok=True)
+    os.makedirs(right_path,exist_ok=True)
     for i,img_data in enumerate(leftImages):
         cv2.imwrite(os.path.join(left_path,f'left_ROI_{i}.jpg'),img_data)
     for i,img_data in enumerate(rightImages):
         cv2.imwrite(os.path.join(right_path,f'right_ROI_{i}.jpg'),img_data)
 
+# compare with user database
+def matching(ROIimg):
+    save_path = os.path.join('./Users', app.config['TEST_SET'])
+    cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), ROIimg)
+    uploaded_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
+    result = 'None'
+    score = 0.01
+    for root,dirs,files in os.walk('./Users'):
+        if root == './Users':
+            for dir in dirs:
+                if dir != 'test':
+                    test_path = os.path.join('./Users', dir)
+                    test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/left')
+                    for i in range(2):
+                        user_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'left_ROI_{i}.jpg'))
+                        score = user_palmprint_code.compare_to(uploaded_palmprint_code) 
+                        print(f'left score: {score}')
+                        if score>= MATCH_THRESHOLD:
+                            result = dir
+                            return result
+                    test_path = os.path.join('./Users', dir)
+                    test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/right')
+                    for i in range(2):
+                        user_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'right_ROI_{i}.jpg'))
+                        score = user_palmprint_code.compare_to(uploaded_palmprint_code)
+                        print(f'right score: {score}')
+                        if score >= MATCH_THRESHOLD:
+                            result = dir
+                            return result
+    return result
 
 @app.route('/recognize', methods=['POST'])
 def recognize():
@@ -148,25 +176,21 @@ def recognize():
     if img_data:
         st_time=time.time()
         save_path = os.path.join('./Users', app.config['TEST_SET'])
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
+        os.makedirs(save_path, exist_ok=True)
 
         # decode base64 image
         img = decode_base64_image(img_data)
         img.save(os.path.join(save_path, 'temp.jpg'))
+        ed_time = time.time()
+        print(f'decode time: {ed_time-st_time}s')
         
         # pre process image
-        # img = cv2.imread(os.path.join(save_path, 'temp.jpg'), 1)
-        # img = cv2.transpose(img)
-        # img = cv2.flip(img, 1)
-        # cv2.imwrite(os.path.join(save_path, 'temp.jpg'), img)
-        # rgb_frame = mp.Image.create_from_file(os.path.join(save_path, 'temp.jpg'))
         rgb_frame = mp.Image(image_format=mp.ImageFormat.SRGB, data=np.asarray(img))
         
         # detect landmarks
         detection_result = detector.detect(rgb_frame)
         ed_time = time.time()
-        print('detection time:', ed_time-st_time)
+        print(f'detection time: {ed_time-st_time}s')
         # print(detection_result)
         # img_annotated = draw_landmarks_on_image(rgb_frame.numpy_view(), detection_result)
         # cv2.imwrite(os.path.join(save_path, 'temp_annotated.jpg'), img_annotated)
@@ -176,31 +200,8 @@ def recognize():
         img_ROI=get_ROI_image(img, detection_result)
         ed_time = time.time()
         print(f'ROI extractation time: {ed_time - st_time}s')
-        cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), img_ROI)
-        result='None'
-        for root, dirs, files in os.walk('./Users'):
-            if root == './Users':
-                for dir in dirs:
-                    if dir != 'test':
-                        test_path = os.path.join('./Users', dir)
-                        test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/left')
-                        for i in range(2):
-                            one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'left_ROI_{i}.jpg'))
-                            another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
-                            if one_palmprint_code.compare_to(another_palmprint_code) >= MATCH_THRESHOLD:
-                                result = dir
-                                break
-                        if result == 'None':
-                            test_path = os.path.join('./Users', dir)
-                            test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/right')
-                            for i in range(2):
-                                one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'right_ROI_{i}.jpg'))
-                                another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
-                                if one_palmprint_code.compare_to(another_palmprint_code) >= MATCH_THRESHOLD:
-                                    result = dir
-                                    break
-                        if result != 'None':
-                            break
+        # match palmprint with user database
+        result = matching(img_ROI)
         ed_time = time.time()
         print(f'Matching time: {ed_time - st_time}s')
         return jsonify({'code': 0, 'result': result})
@@ -254,45 +255,19 @@ def reco():
     if img_data:
         st_time = time.time()
         save_path = os.path.join('./Users', app.config['TEST_SET'])
-        if not os.path.exists(save_path):
-            os.makedirs(save_path)
+        os.makedirs(save_path, exist_ok=True)
 
         # decode base64 image
         img = decode_base64_image(img_data)
         img.save(os.path.join(save_path, 'temp.png'))
+        ed_time = time.time()
+        print(f'decode time: {ed_time - st_time}s')
         
         # get ROI image
         img_ROI= cv2.imread(os.path.join(save_path, 'temp.png'), cv2.IMREAD_GRAYSCALE)
-        cv2.imwrite(os.path.join(save_path, 'temp_ROI.jpg'), img_ROI)
-        result='None'
-        score=0.01
-        for root, dirs, files in os.walk('./Users'):
-            if root == './Users':
-                for dir in dirs:
-                    if dir != 'test':
-                        test_path = os.path.join('./Users', dir)
-                        test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/left')
-                        for i in range(2):
-                            one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'left_ROI_{i}.jpg'))
-                            another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
-                            score = one_palmprint_code.compare_to(another_palmprint_code)
-                            print(f'left score: {score}')
-                            if score >= MATCH_THRESHOLD:
-                                result = dir
-                                break
-                        if result == 'None':
-                            test_path = os.path.join('./Users', dir)
-                            test_path = os.path.join(test_path, app.config['TRAIN_SET'] + '/right')
-                            for i in range(2):
-                                one_palmprint_code = encoder.encode_using_file(os.path.join(test_path, f'right_ROI_{i}.jpg'))
-                                another_palmprint_code = encoder.encode_using_file(os.path.join(save_path, 'temp_ROI.jpg'))
-                                score = one_palmprint_code.compare_to(another_palmprint_code)
-                                print(f'right score: {score}')
-                                if score >= MATCH_THRESHOLD:
-                                    result = dir
-                                    break
-                        if result != 'None':
-                            break
+        
+        # match palmprint with user database
+        result = matching(img_ROI)
         ed_time = time.time()
         print(f'Matching time: {ed_time - st_time}s')
         return jsonify({'code': 0, 'result': result})
