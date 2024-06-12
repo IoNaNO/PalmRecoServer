@@ -1,3 +1,4 @@
+import cv2
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_httpauth import HTTPBasicAuth
@@ -5,7 +6,6 @@ import os
 import base64
 from PIL import Image
 import io
-import cv2
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision

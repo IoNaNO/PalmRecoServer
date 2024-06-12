@@ -1,8 +1,8 @@
+numpy
+mediapipe
+Pillow
 Flask
 flask-cors
+opencv-python
 flask-httpauth
-Werkzeug
-Pillow
-opencv-python-headless  # Do not Support GUI
-mediapipe
-numpy
+gunicorn
